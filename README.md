@@ -33,6 +33,7 @@ python measurements/holographic_smoke_suite.py \
   --model /path/to/llama-or-qwen-model \
   --context_tokens 2200 \
   --screen_keep_ratio 0.03 \
+  --support_mode mass \
   --local_tail_sentences 4
 ```
 

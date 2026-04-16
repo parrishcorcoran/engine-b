@@ -197,7 +197,31 @@ def parse_args() -> argparse.Namespace:
         "--screen_keep_ratio",
         type=float,
         default=0.03,
-        help="Fraction of high-resonance sentences to keep globally.",
+        help="Maximum fraction of high-resonance sentences to keep globally.",
+    )
+    parser.add_argument(
+        "--support_mode",
+        default="mass",
+        choices=["ratio", "mass"],
+        help="`ratio` keeps fixed top-K support; `mass` keeps enough probability mass up to the ratio cap.",
+    )
+    parser.add_argument(
+        "--support_mass",
+        type=float,
+        default=0.80,
+        help="Cumulative support probability to retain in `mass` mode.",
+    )
+    parser.add_argument(
+        "--support_temperature",
+        type=float,
+        default=0.04,
+        help="Softmax temperature for converting resonance scores to support mass.",
+    )
+    parser.add_argument(
+        "--min_keep_sentences",
+        type=int,
+        default=1,
+        help="Minimum non-local support sentences retained.",
     )
     parser.add_argument(
         "--local_tail_sentences",
@@ -582,6 +606,10 @@ def build_screen(
     lens: str,
     local_only: bool = False,
     answer_prefix: str = "",
+    support_mode: str = "mass",
+    support_mass: float = 0.80,
+    support_temperature: float = 0.04,
+    min_keep_sentences: int = 1,
 ) -> Tuple[str, ScreenStats]:
     scores, spans, total_prompt_tokens = sentence_resonance_scores(
         model=model,
@@ -597,8 +625,27 @@ def build_screen(
     keep_indices = set(range(tail_start, total_sentences))
 
     if not local_only:
-        keep_global = max(1, int(math.ceil(total_sentences * keep_ratio)))
         ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)
+        max_global = max(min_keep_sentences, int(math.ceil(total_sentences * keep_ratio)))
+        if support_mode == "ratio":
+            keep_global = max_global
+        else:
+            max_score = ranked[0][1]
+            weights = [
+                math.exp((score - max_score) / max(1e-6, support_temperature))
+                for _index, score in ranked
+            ]
+            total_weight = max(1e-12, sum(weights))
+            cumulative = 0.0
+            keep_global = 0
+            for weight in weights:
+                cumulative += weight / total_weight
+                keep_global += 1
+                if keep_global >= min_keep_sentences and cumulative >= support_mass:
+                    break
+                if keep_global >= max_global:
+                    break
+            keep_global = min(max_global, max(min_keep_sentences, keep_global))
         keep_indices.update(index for index, _score in ranked[:keep_global])
         top_scores = [
             (index, round(score, 4), case.sentences[index].kind)
@@ -676,6 +723,10 @@ def decode_support_or_dual(
     local_tail_sentences: int,
     lens: str,
     strategy: str,
+    support_mode: str,
+    support_mass: float,
+    support_temperature: float,
+    min_keep_sentences: int,
 ) -> Tuple[str, DecodeTelemetry]:
     generated: List[int] = []
     num_layers = len(model.model.layers)
@@ -700,6 +751,10 @@ def decode_support_or_dual(
             lens=lens,
             local_only=False,
             answer_prefix=answer_prefix,
+            support_mode=support_mode,
+            support_mass=support_mass,
+            support_temperature=support_temperature,
+            min_keep_sentences=min_keep_sentences,
         )
         support_inputs = move_batch(
             tokenizer(support_prompt, return_tensors="pt", add_special_tokens=False),
@@ -798,6 +853,10 @@ def perplexity_support_or_dual(
     lens: str,
     strategy: str,
     eval_tokens: int,
+    support_mode: str,
+    support_mass: float,
+    support_temperature: float,
+    min_keep_sentences: int,
 ) -> Optional[float]:
     answer_ids = tokenizer(
         f" {canonical_answer}",
@@ -831,6 +890,10 @@ def perplexity_support_or_dual(
             lens=lens,
             local_only=False,
             answer_prefix=answer_prefix,
+            support_mode=support_mode,
+            support_mass=support_mass,
+            support_temperature=support_temperature,
+            min_keep_sentences=min_keep_sentences,
         )
         support_inputs = move_batch(
             tokenizer(support_prompt, return_tensors="pt", add_special_tokens=False),
@@ -867,6 +930,10 @@ def run_variant(
     keep_ratio: float = 0.03,
     local_tail_sentences: int = 4,
     lens: str = "trajectory",
+    support_mode: str = "mass",
+    support_mass: float = 0.80,
+    support_temperature: float = 0.04,
+    min_keep_sentences: int = 1,
     screen: Optional[ScreenStats] = None,
 ) -> VariantResult:
     if strategy in {"full", "early"}:
@@ -905,6 +972,10 @@ def run_variant(
             local_tail_sentences=local_tail_sentences,
             lens=lens,
             strategy=strategy,
+            support_mode=support_mode,
+            support_mass=support_mass,
+            support_temperature=support_temperature,
+            min_keep_sentences=min_keep_sentences,
         )
         ppl = perplexity_support_or_dual(
             model=model,
@@ -918,6 +989,10 @@ def run_variant(
             lens=lens,
             strategy=strategy,
             eval_tokens=eval_tokens,
+            support_mode=support_mode,
+            support_mass=support_mass,
+            support_temperature=support_temperature,
+            min_keep_sentences=min_keep_sentences,
         )
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
@@ -1050,6 +1125,10 @@ def main() -> None:
             local_tail_sentences=args.local_tail_sentences,
             lens=args.screen_lens,
             local_only=True,
+            support_mode=args.support_mode,
+            support_mass=args.support_mass,
+            support_temperature=args.support_temperature,
+            min_keep_sentences=args.min_keep_sentences,
         )
         local_tail = run_variant(
             model=model,
@@ -1078,6 +1157,10 @@ def main() -> None:
             keep_ratio=args.screen_keep_ratio,
             local_tail_sentences=args.local_tail_sentences,
             lens=args.screen_lens,
+            support_mode=args.support_mode,
+            support_mass=args.support_mass,
+            support_temperature=args.support_temperature,
+            min_keep_sentences=args.min_keep_sentences,
         )
 
         early_exit = run_variant(
@@ -1106,6 +1189,10 @@ def main() -> None:
             keep_ratio=args.screen_keep_ratio,
             local_tail_sentences=args.local_tail_sentences,
             lens=args.screen_lens,
+            support_mode=args.support_mode,
+            support_mass=args.support_mass,
+            support_temperature=args.support_temperature,
+            min_keep_sentences=args.min_keep_sentences,
         )
 
         result = CaseResult(
@@ -1131,6 +1218,10 @@ def main() -> None:
         "screen_keep_ratio": args.screen_keep_ratio,
         "local_tail_sentences": args.local_tail_sentences,
         "screen_lens": args.screen_lens,
+        "support_mode": args.support_mode,
+        "support_mass": args.support_mass,
+        "support_temperature": args.support_temperature,
+        "min_keep_sentences": args.min_keep_sentences,
         "results": [case_result_to_dict(result) for result in results],
     }
     print(json.dumps(payload, indent=2))
