@@ -14,6 +14,8 @@ as the answer cloud collapses.
 Read:
 - README.md
 - docs/fault_model.md
+- docs/14d_physics_map.md
+- docs/invariant_test_doctrine.md
 - docs/test_ladder.md
 - measurements/holographic_smoke_suite.py
 
@@ -33,7 +35,10 @@ First tests:
 5. Run adversarial recency only after far shows signal.
 
 Before host-model tests:
+- Run `python measurements/invariant_simulations.py --seeds 100`.
 - Run `python measurements/synthetic_engine_b.py --seeds 100`.
+- Confirm all five invariants pass: support contraction, phase crossing, basis
+  robustness, causal wedge, and A+B coupling.
 - Confirm the simulator has positive `d_conf`.
 - Prefer `--support_mode mass`; fixed-ratio support cannot prove contraction.
 
@@ -52,6 +57,8 @@ Interpretation:
 - If support_set beats local_tail, that is evidence for dynamic support instead
   of recency cache.
 - If support agreement is high at low retained fraction, Engine B has signal.
+- If adversarial distractors remain high while Engine A confidence rises, try a
+  confidence-coupled support mass before rejecting the lens.
 - If causal oracle support is sparse but cosine support fails, the proxy is bad
   but the physics signal is alive.
 - If causal oracle support is dense, Engine B likely fails for that task/model.

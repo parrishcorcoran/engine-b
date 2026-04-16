@@ -286,7 +286,16 @@ Try these first:
 
 ## Local Pre-Host Simulation
 
-Before using the Z8, run the stdlib-only synthetic simulator:
+Before using the Z8, run the stdlib-only invariant simulator:
+
+```bash
+python measurements/invariant_simulations.py --seeds 100
+```
+
+This checks the five cheap invariants: support contraction, phase crossing,
+basis robustness, causal wedge behavior, and A+B coupling.
+
+Then run the broader synthetic support sweep:
 
 ```bash
 python measurements/synthetic_engine_b.py --seeds 100

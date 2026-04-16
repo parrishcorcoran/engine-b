@@ -8,17 +8,22 @@ move deeper; if it fails, change one thing and retry.
 Run the synthetic pre-check locally on the host:
 
 ```bash
+python measurements/invariant_simulations.py --seeds 100
 python measurements/synthetic_engine_b.py --seeds 100 --support_mode mass
 ```
 
 Expected:
 
+- All five invariant simulations pass.
 - `far` has high `agree`.
 - `far` has low `kept`.
 - `d_conf` is positive.
 - `d_sup` is positive or at least non-negative.
 
-If this fails, fix the harness before loading a model.
+If this fails, fix the harness before loading a model. The invariant simulator
+is the cheaper gate: it checks support contraction, phase crossing, basis
+robustness, causal wedge behavior, and A+B coupling before any model time is
+spent.
 
 ## Tier 0: Baseline Controls
 
@@ -567,7 +572,11 @@ Use this table to name failures consistently.
 | Baseline amnesia | Full prompt answers wrong fact | Model/prompt cannot retrieve | Lower context, strengthen prompt, stronger model |
 | Recency overwrite | Tail distractor wins | Model prefers recent memory | Add adversarial controls, query-conditioned support |
 | Lexical capture | Generic password line wins | Selector matches words not intent | Add question-token conditioning |
+| Ambiguity preserved | Target and distractor both survive | Selector keeps superposition alive | Lower mass/temp or query-condition |
+| Partial phase crossing | Target partly survives, distractor partly survives | Selector sees the crossing but does not collapse it | Try confidence-coupled support mass |
+| Weak support | Target survives intermittently | Lens is close but unstable | Raise support mass or use multi-scale support |
 | Support blindness | Target not kept | Proxy cannot see causal memory | Try lens sweep, then causal oracle |
+| Borderline signal | Agreement and target survival are 75-89% | Signal exists but is unstable | Increase repeats, raise mass slightly |
 | Context glue loss | Target kept but answer wrong | Support lacks neighboring syntax/context | Keep neighbors, add position labels |
 | Position failure | Rerun works but KV mask fails | RoPE/original positions not preserved | Preserve positions, compare logits per step |
 | Cache drift | KV mask works first token then fails | Cache update mismatch | Check per-step cache indices |
@@ -598,8 +607,9 @@ Metrics:
 
 Diagnosis label:
 One of: parser/vocab, baseline amnesia, recency overwrite, lexical capture,
-support blindness, context glue loss, position failure, cache drift,
-dense causal memory, collapse absent, first-order signal.
+ambiguity preserved, partial phase crossing, weak support, support blindness,
+borderline signal, context glue loss, position failure, cache drift, dense
+causal memory, collapse absent, first-order signal.
 
 Interpretation:
 

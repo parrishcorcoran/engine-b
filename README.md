@@ -24,7 +24,17 @@ collapsing answer cloud?
 - **Trajectory:** support should be selected from the current direction of
   collapse, not from static token importance.
 
+The dimension is treated as real; the axis names are provisional. See
+`docs/14d_physics_map.md` for the current Engine A/Engine B split and
+`docs/invariant_test_doctrine.md` for the invariant tests that keep us honest.
+
 ## Current Smoke Test
+
+Before loading a model, run the toy-world invariant checks:
+
+```bash
+python measurements/invariant_simulations.py --seeds 100
+```
 
 The first harness is intentionally slow but falsifiable:
 
