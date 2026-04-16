@@ -52,6 +52,16 @@ Meaning:
 
 - The task/model/prompt is broken. Do not interpret support failures.
 
+Diagnosis:
+
+- If the generated text contains the right answer but `found=No`, it is an
+  answer parser or vocabulary formatting issue.
+- If the model outputs a synonym, extra punctuation, or tokenization artifact,
+  relax the parser before changing Engine B.
+- If the model answers with a tail fact instead of the target fact, it is
+  prompt amnesia or recency overwrite.
+- If the model refuses or rambles, the prompt is not deterministic enough.
+
 ### If Local-Tail Control Fails On Local
 
 Symptoms:
@@ -69,6 +79,13 @@ Meaning:
 
 - Prompt construction or answer parsing is probably bad.
 
+Diagnosis:
+
+- If `baseline` passes but `local_tail` fails on `local`, the local-tail window
+  is too short or the prompt lost grammar glue.
+- If the right fact is inside the local-tail support but the model misses it,
+  the issue is not memory selection; it is prompt formatting or answer parsing.
+
 ### If Local-Tail Passes Far
 
 Symptoms:
@@ -84,6 +101,13 @@ Next tests:
 Meaning:
 
 - The far case is too easy. It is not proving dynamic memory.
+
+Diagnosis:
+
+- If local-tail passes because the target is accidentally near the tail, move
+  the target earlier.
+- If local-tail passes because filler repeats the answer pattern too strongly,
+  diversify filler and add distractors.
 
 ## Tier 1: Dynamic Support Signal
 
@@ -119,6 +143,13 @@ Meaning:
 
 - Engine B has first-order signal. Now find the memory knee and adversarial limits.
 
+Diagnosis:
+
+- This does not yet prove true KV masking. It proves that a small dynamic
+  boundary support can preserve behavior under prompt rerun.
+- The next risk is that prompt rerun is hiding a RoPE/position problem that will
+  appear in true KV masking.
+
 ### If Answer Is Correct But Support Agreement Is Low
 
 Symptoms:
@@ -137,6 +168,14 @@ Meaning:
 
 - Retrieval survives, but next-token equivalence is not stable yet. The answer
   task may be too coarse.
+
+Diagnosis:
+
+- If exact answer is right but agreement is low, the model may be semantically
+  stable but token-distribution unstable.
+- Check KL or top-5 agreement before rejecting the signal.
+- If disagreement mostly happens after the answer token, the memory mechanism
+  may work and the suffix formatting is the problem.
 
 ### If Target Is Not Kept
 
@@ -158,6 +197,15 @@ Meaning:
 - Current proxy does not identify relevant memory. This does not kill Engine B
   unless the causal oracle also fails.
 
+Diagnosis:
+
+- If the target never appears in top support, the resonance lens is blind.
+- If target appears in top scores early but drops later, the answer cloud is
+  rotating away from the evidence too soon.
+- If target is missed only when distractors exist, this is lexical capture.
+- If target is missed only at long context, this may be position decay or
+  long-context amnesia.
+
 ### If Target Is Kept But Answer Fails
 
 Symptoms:
@@ -176,6 +224,14 @@ Meaning:
 
 - The support has evidence but lost context glue, position cues, or grammar.
 
+Diagnosis:
+
+- If adding neighboring sentences fixes it, the failure is context glue.
+- If adding sentence indices fixes it, the failure is positional addressing.
+- If token-span support fixes it, sentence averaging was too coarse.
+- If nothing fixes it but full prompt works, the model needs distributed context
+  rather than a single fact line.
+
 ### If Support Fraction Is Too High
 
 Symptoms:
@@ -192,6 +248,12 @@ Next tests:
 Meaning:
 
 - Support is too diffuse. The lens is not sharp enough.
+
+Diagnosis:
+
+- If low temperature still keeps many sentences, the scores are flat.
+- Flat scores mean the boundary readout is not separating relevant memory.
+- Move to causal deletion oracle to see if true causal support is sparse.
 
 ### If `d_conf` Is Negative
 
@@ -211,6 +273,15 @@ Meaning:
 - The answer cloud is not collapsing under this task. Engine B may still work,
   but this test does not express the physics.
 
+Diagnosis:
+
+- If `d_conf` stays flat, the task may be a retrieval jump rather than a
+  sentence-completion collapse.
+- If `d_conf` drops after the answer token, increase `max_new_tokens` carefully
+  and inspect per-token confidence.
+- If `d_conf` is negative only for adversarial, the distractor is keeping the
+  cloud in superposition.
+
 ### If `d_support` Is Negative
 
 Symptoms:
@@ -228,6 +299,13 @@ Meaning:
 
 - Memory demand is growing as answer unfolds, or support policy is selecting by
   uncertainty rather than collapse.
+
+Diagnosis:
+
+- If support grows while confidence rises, mass temperature is too high or
+  support mass is too high.
+- If support grows while confidence falls, the model is genuinely uncertain.
+- If fixed ratio mode is active, `d_support` is not meaningful.
 
 ## Tier 2: Lens Search
 
@@ -257,6 +335,11 @@ Meaning:
 
 - Rotation signal is noisy in this model/layer choice.
 
+Diagnosis:
+
+- Try a later exit layer; early layers may not contain the right trajectory.
+- Try final-only if the model has weak orbital rotation at the chosen depth.
+
 ### If Trajectory Beats Final
 
 Next tests:
@@ -268,6 +351,11 @@ Next tests:
 Meaning:
 
 - Boundary motion matters. This supports the orbital lens.
+
+Diagnosis:
+
+- If trajectory helps far but hurts adversarial, the trajectory signal is real
+  but not query-conditioned enough.
 
 ### If Both Fail
 
@@ -281,6 +369,12 @@ Next tests:
 Meaning:
 
 - Cosine support is probably the wrong proxy.
+
+Diagnosis:
+
+- If both lenses fail but baseline is strong, do not reject Engine B yet.
+- Move to causal deletion oracle to separate proxy failure from hypothesis
+  failure.
 
 ## Tier 3: Adversarial Recency
 
@@ -308,6 +402,11 @@ Meaning:
 
 - Strong evidence that support is not just recency.
 
+Diagnosis:
+
+- Now increase distractor pressure until it breaks. The break pattern tells us
+  what the selector is actually using.
+
 ### If Distractor Stays And Target Drops
 
 Next tests:
@@ -320,6 +419,12 @@ Meaning:
 
 - The support lens is lexical. Need query-conditioned support.
 
+Diagnosis:
+
+- If the distractor has "password" and the target has "vault password", the
+  selector may be matching the generic word rather than the requested entity.
+- Add query-conditioned scoring from question tokens or causal oracle labels.
+
 ### If Both Target And Distractor Stay
 
 Next tests:
@@ -331,6 +436,11 @@ Next tests:
 Meaning:
 
 - Support is not sharp enough.
+
+Diagnosis:
+
+- If both survive but answer is correct, the selector is safe but wasteful.
+- If both survive and answer is wrong, the selector preserved ambiguity.
 
 ## Tier 4: Causal Deletion Oracle
 
@@ -363,6 +473,13 @@ Meaning:
 
 - Engine B is real; the remaining problem is learning the selector cheaply.
 
+Diagnosis:
+
+- If causal support is sparse and cosine support failed, the proxy is the
+  problem, not the physics.
+- If causal support is sparse only after answer prefix grows, dynamic support is
+  real but needs generation-step conditioning.
+
 ### If Causal Oracle Fails
 
 Symptoms:
@@ -380,6 +497,13 @@ Next tests:
 Meaning:
 
 - The useful memory is not sparse enough in this regime.
+
+Diagnosis:
+
+- If causal support is dense for filler but sparse for deterministic prompts,
+  Engine B is task-dependent rather than false.
+- If causal support is dense even on deterministic completions, this model may
+  distribute memory too broadly for cache deletion.
 
 ## Tier 5: True KV Mask
 
@@ -414,6 +538,13 @@ Meaning:
 
 - Implementation bug, not necessarily hypothesis failure.
 
+Diagnosis:
+
+- If support rerun works but KV mask fails, suspect positions, RoPE phase,
+  attention-mask shape, or cache index mismatch.
+- If KV mask fails only after several generated tokens, suspect cache update
+  drift rather than support selection.
+
 ## Summary Routing
 
 Use this routing:
@@ -425,3 +556,52 @@ Use this routing:
 - Support high and agreement high: move to adversarial or causal oracle.
 - Causal oracle sparse: Engine B signal is real.
 - Causal oracle dense: Engine B fails in this regime.
+
+## Failure Taxonomy
+
+Use this table to name failures consistently.
+
+| Failure | Symptom | Likely Cause | Next Move |
+|---|---|---|---|
+| Parser/vocab failure | Text contains answer but `found=No` | Answer extraction too strict | Relax parser, inspect decoded tokens |
+| Baseline amnesia | Full prompt answers wrong fact | Model/prompt cannot retrieve | Lower context, strengthen prompt, stronger model |
+| Recency overwrite | Tail distractor wins | Model prefers recent memory | Add adversarial controls, query-conditioned support |
+| Lexical capture | Generic password line wins | Selector matches words not intent | Add question-token conditioning |
+| Support blindness | Target not kept | Proxy cannot see causal memory | Try lens sweep, then causal oracle |
+| Context glue loss | Target kept but answer wrong | Support lacks neighboring syntax/context | Keep neighbors, add position labels |
+| Position failure | Rerun works but KV mask fails | RoPE/original positions not preserved | Preserve positions, compare logits per step |
+| Cache drift | KV mask works first token then fails | Cache update mismatch | Check per-step cache indices |
+| Dense causal memory | Causal oracle needs many chunks | Memory not sparse for task/model | Try easier task/model or reject regime |
+| Collapse absent | `d_conf <= 0` | Cloud not becoming deterministic | Use deterministic completion prompt |
+
+## Result Log Template
+
+Use this after each run:
+
+```text
+Run:
+Command:
+Model:
+Case:
+
+Metrics:
+- baseline found:
+- local_tail found:
+- support_set found:
+- support agree:
+- avg_token_frac:
+- target_kept:
+- distractor_kept:
+- d_conf:
+- d_support:
+- answer:
+
+Diagnosis label:
+One of: parser/vocab, baseline amnesia, recency overwrite, lexical capture,
+support blindness, context glue loss, position failure, cache drift,
+dense causal memory, collapse absent, first-order signal.
+
+Interpretation:
+
+Next single change:
+```
